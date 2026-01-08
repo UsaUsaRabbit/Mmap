@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content" />
+  <title>Messier Sky Map</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <script src="messier_data.js"></script>
+  <script src="stars_data.js"></script>
+  <script src="manystars_data.js"></script>
+  <script src="https://unpkg.com/@panzoom/panzoom/dist/panzoom.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/astronomy-engine/astronomy.browser.min.js"></script>
+
+  <style>
+body {
+
+  touch-action: manipulation;
+  overscroll-behavior: contain;
+  margin: 0;
+  background-color: black;
+  color: white;
+  font-family: sans-serif;
+}
+#container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+#skyMap {
+  flex: 1;           /* Take remaining space */
+  width: 100%;
+}
+#infoBox {
+  height: 25vh;
+  overflow-y: auto;
+  padding: 10px;
+  background-color: #111;
+}
+#infoContent {
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
+  align-items: flex-start;
+}
+#textBlock {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85em; /* 👈 smaller font */
+  line-height: 1.4;
+}
+#preview {
+  width: 150px;
+  height: auto;
+  max-height: 150px;
+  display: none;
+  border: 1px solid #444;
+  border-radius: 4px;
+  object-fit: contain;
+}
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div id="infoBox">
+        <div id="infoContent">
+             <img id="preview" src="" />
+            <div id="textBlock">
+            <h3 id="title">Click over a Messier object</h3>
+            <p id="details"></p>
+            </div>       
+        </div>
+    </div>
+    <div id="skyMap"></div>
+  </div>
+  <p style="font-size: 0.8em; color: gray;">
+  Messier object data and images sourced from Wikipedia, licensed from Wikimedia Commons under <a href="https://creativecommons.org/share-your-work/cclicenses/" target="_blank">CC Lisences</a>.
+  Detail are in <a href="attribution.html"target="_blank">Attribution.</a><br>
+  Star data from <a href="https://www.astronexus.com/projects/hyg" target="_blank">HYG 4.1 </a> under <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.en"target="_blank">CC-BY-SA4.0.</a>
+  This project was created with help from ChatGPT for coding support and integration.<br>
+  Uses Astronomy Engine by Don Cross — <a href="https://github.com/cosinekitty/astronomy"target="_blank"> (MIT License)</a>, for the Solar system information. PC version is <a href="indexpc.html"target="_blank">here.</a>, with more options.<br>
+</p>
+ <script>
+    if (typeof messierObjects === 'undefined') {
+      alert("Error: messierObjects not loaded. Check messier_data.js!");
+    } else {
+      
+      const starCoords = messierObjects.map(star => mollweideProject(star.ra, star.dec));
+      const xData = starCoords.map(p => p.x);
+      const yData = starCoords.map(p => p.y);
+
+      const trace = {
+        x: xData,
+        y: yData,
+        mode: 'markers+text',
+        type: 'scatter',
+        text: messierObjects.map(obj => obj.number),
+        textposition: 'top center',
+        marker: { symbol: 'diamond', size: 7, color: "#72DCE2", opacity: 0.5 },
+        customdata: messierObjects,
+        hoverinfo: 'text',
+        hovertext: messierObjects.map(obj => obj.name)
+      };
+      
+      const starCoords1 = firstMagnitudeStars.map(star => mollweideProject(star.ra, star.dec));
+      const xData1 = starCoords1.map(p => p.x);
+      const yData1 = starCoords1.map(p => p.y);
+
+      const starTrace = {
+      x: xData1,
+      y: yData1,
+      mode: 'markers+text',
+      type: 'scatter',
+      marker: {
+      color: 'yellow',
+      size: 7,
+      opacity: 0.8,
+      symbol: 'star'
+  },
+  text: firstMagnitudeStars.map(star => star.name),
+  textposition: 'bottom center',
+  name: 'Bright Stars',
+  customdata: firstMagnitudeStars,
+  hoverinfo: 'text',
+  hovertext: firstMagnitudeStars.map(star =>
+    `${star.name} (${star.designation})<br>Mag: ${star.magnitude}`
+  )
+};
+
+      const starCoords2 = ManyStars.map(star => mollweideProject(star.ra, star.dec));
+      const xData2 = starCoords2.map(p => p.x);
+      const yData2 = starCoords2.map(p => p.y);
+
+const manystarTrace = {
+      x: xData2,
+      y: yData2,  
+      mode: 'markers',
+      type: 'scatter',
+      marker: {
+      color: 'green',
+      opacity: 0.6,
+      size: ManyStars.map(star => Math.max(1, Math.round(7 - star.magnitude))),
+      symbol: 'dot',
+      line: {
+      width: 0  // 🚫 This removes the white rim/border
+    }
+  },
+  hoverinfo: 'skip' // 🚫 This removes the hoverinfo
+};
+
+const observer = new Astronomy.Observer(0, 0, 0); // geocentric
+const planets = ["Sun","Moon","Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune"];
+const now = new Date();
+console.log(`NOW: ${now}`);
+const xData3 = [];
+const yData3 = [];
+const planetLabels = [];
+const planetObjects = [];
+
+planets.forEach(name => {
+  const eq = Astronomy.Equator(name, now, observer, true, true);
+  const raDegp = eq.ra * 15;  // Convert RA from hours to degrees
+  const decDegp = eq.dec;
+
+  console.log(`Planet: ${name}`);
+  console.log(`RA (deg): ${raDegp}`);
+  console.log(`Dec (deg): ${decDegp}`);
+
+  const {x, y} = mollweideProject(raDegp, decDegp);
+  console.log(`Projected x: ${x}, y: ${y}`);
+  xData3.push(x);
+  yData3.push(y);
+  planetLabels.push(name);
+  planetObjects.push({
+    name: name,
+    ra: raDegp.toFixed(2),
+    dec: decDegp.toFixed(2),
+    image: `images/${name}.jpg`
+  });
+});
+
+  const planetColors = {
+  Mercury: 'darkgray',
+  Venus: 'goldenrod',
+  Earth: 'blue',
+  Mars: 'red',
+  Jupiter: 'orange',
+  Saturn: 'khaki',
+  Uranus: 'lightblue',
+  Neptune: 'skyblue',
+  Sun: 'yellow',
+  Moon: 'white'
+};
+const colorArray = planetLabels.map(name => planetColors[name] || 'white');
+
+const planetSize = {
+  Sun: 12,
+  Moon: 9,
+  Jupiter: 8
+};
+const sizeArray = planetLabels.map(name => planetSize[name] || 6);
+
+
+const planetTrace = {
+  x: xData3,
+  y: yData3,
+  mode: 'markers+text',
+  type: 'scatter',
+  text: planetLabels,  
+  textposition: 'top center',
+  marker: {
+    //color: 'lightorange',
+    color: colorArray,
+    //size: 6,
+    size: sizeArray,
+    opacity: 0.8,
+    symbol: 'circle',
+    line: {
+      width: 0
+    }
+  },
+  customdata: planetObjects, 
+  name: 'planets',
+  hoverinfo: 'text'
+};
+
+const graticuleLines = generateGraticuleLines();
+
+const layout = {
+  dragmode: false,       
+  paper_bgcolor: 'black',
+  plot_bgcolor: 'black',
+  xaxis: {
+    title: 'RA (hr)',
+    showgrid: false,
+    zeroline: false,
+    showline: true,
+    linecolor: '#666',
+    mirror: true,
+    tickvals: [-2.75, -2.3, -1.84, -1.38, -0.92, -0.46, 0, 0.46, 0.92, 1.38, 1.84, 2.3, 2.75],  // Set positions across Mollweide space
+    ticktext: ['24h','22h','20h', '18h', '16h', '14h', '12h', '10h', '8h', '6h', '4h', '2h','0h'],
+    tickfont: { color: '#888' }
+  },
+  yaxis: {
+    title: 'Dec (°)',
+    showgrid: false,
+    zeroline: false,
+    showline: true,
+    linecolor: '#666',
+    mirror: true,
+    tickvals: [-1.414, -1, -0.5, 0, 0.5, 1, 1.414],
+    ticktext: ['-90°', '-60°', '-30°', '0°', '30°', '60°', '90°'],
+    tickfont: { color: '#888' }
+  },
+        margin: { l: 40, r: 10, b: 40, t: 20 },
+        showlegend: false,
+        hovermode: 'closest',
+        hoverdistance: 10   // Shrink detection area
+      };
+
+      const config = {
+  displayModeBar: false,  // Hides Plotly's toolbar
+  scrollZoom: false,      // Prevents zoom with scroll
+  staticPlot: false,      // Set to true to make plot non-interactive
+  responsive: true        // Keep the plot responsive on resize
+};
+
+Plotly.newPlot(
+  'skyMap',
+  [...graticuleLines, trace, starTrace, manystarTrace],
+  layout,
+  config
+).then(() => {
+  // Your event bindings (plotly_click, etc.)
+});
+
+  Plotly.newPlot('skyMap', [...graticuleLines, trace, starTrace, manystarTrace, planetTrace], layout).then(() => {
+  const skyMapDiv = document.getElementById('skyMap');
+
+  skyMapDiv.on('plotly_click', function(data) {
+    const point = data.points[0];
+    const obj = point.customdata;
+
+    if (point.curveNumber === graticuleLines.length && obj && obj.image) {
+      document.getElementById('title').innerHTML = `${obj.number} - ${obj.name}`;
+      document.getElementById('details').innerHTML = `
+        RA: ${obj.ra}°<br>
+        Dec: ${obj.dec}°<br>
+        Mag: ${obj.magnitude}<br>
+        Apparent Size: ${obj.size}<br>
+        Distance: ${obj.distance}<br>
+        Constellation: ${obj.constellation}<br>
+      `;
+      const img = document.getElementById('preview');
+      img.src = obj.image;
+      img.style.display = 'block';
+    } else if (point.curveNumber === graticuleLines.length + 3 && obj && obj.image) {
+  document.getElementById('title').innerHTML = `${obj.name}`;
+  document.getElementById('details').innerHTML = `
+    RA: ${obj.ra}°<br>
+    Dec: ${obj.dec}°<br>
+  `;
+  const img = document.getElementById('preview');
+  img.src = obj.image;
+  img.style.display = 'block';
+  img.onerror = () => { img.style.display = 'none'; };
+  } else if (point.curveNumber === graticuleLines.length + 1 && obj) {
+  document.getElementById('title').innerHTML = `${obj.name}`;
+  document.getElementById('details').innerHTML = `
+    RA: ${obj.ra}°<br>
+    Dec: ${obj.dec}°<br>
+  `;
+  document.getElementById('preview').style.display = 'none';
+   } else {
+      document.getElementById('title').innerHTML = '';
+      document.getElementById('details').innerHTML = '';
+      document.getElementById('preview').style.display = 'none';
+    }
+  });
+});
+
+ const panZoomInstance = panzoom(skyMap, {
+  smoothScroll: false,
+  zoomDoubleClickSpeed: 1,
+  maxZoom: 3,
+  minZoom: 0.5
+});
+
+// Prevent pinch-zoom
+document.addEventListener('touchmove', function (event) {
+  if (event.scale !== 1) {
+    event.preventDefault();
+  }
+}, { passive: false });
+
+
+skyMap.addEventListener('wheel', panZoomInstance.zoomWithWheel);
+let highlightTraceId = null;
+
+function goToObject() {
+ let query = document.getElementById("objectInput").value.trim().toUpperCase();
+  // Convert M031 → M31
+  query = query.replace(/^M(\d{1,3})$/, (_, num) => 'M' + num.padStart(3, '0'));
+  
+  const messier = messierObjects.find(obj =>
+    obj.number.toUpperCase() === query || obj.name.toUpperCase().includes(query)
+  );
+
+  const star = firstMagnitudeStars.find(obj =>
+    obj.name.toUpperCase() === query || obj.designation.toUpperCase() === query
+  );
+
+  const target = messier || star;
+  if (!target) {
+    alert("Object not found.");
+    return;
+  }
+
+  const projected = mollweideProject(target.ra, target.dec);
+  
+  //Plotly.relayout('skyMap', {
+  //  'xaxis.range': [projected.x - 0.5, projected.x + 0.5],
+  //  'yaxis.range': [projected.y - 0.5, projected.y + 0.5]
+  //});
+
+  // Optional: simulate a "click"
+  if (messier) {
+    document.getElementById('title').innerHTML = `${target.number} - ${target.name}`;
+    document.getElementById('details').innerHTML = `
+      RA: ${target.ra}°<br>
+      Dec: ${target.dec}°<br>
+      Mag: ${target.magnitude}<br>
+      Apparent Size: ${target.size}<br>
+      Distance: ${target.distance}<br>
+      Constellation: ${target.constellation}<br>
+    `;
+    const img = document.getElementById('preview');
+    img.src = target.image;
+    img.style.display = 'block';
+  } else {
+    document.getElementById('title').innerHTML = target.name;
+    document.getElementById('details').innerHTML = `
+      Designation: ${target.designation}<br>
+      Mag: ${target.magnitude}<br>
+      RA: ${target.ra}°<br>
+      Dec: ${target.dec}°
+    `;
+    document.getElementById('preview').style.display = 'none';
+  }
+}
+
+function deg2rad(deg) {
+  return deg * Math.PI / 180;
+};
+
+// RA: in degrees (0–360), Dec: in degrees (-90 to 90)
+function mollweideProject(raDeg, decDeg) {
+  //const λ = deg2rad(raDeg - 180); // center RA=180 in middle
+  const λ = deg2rad(180-raDeg); // center RA=180 in middle
+  const φ = deg2rad(decDeg);
+
+  // Solve 2θ + sin(2θ) = π * sin(φ)
+  let theta = φ; // initial guess
+  for (let i = 0; i < 10; i++) {
+    let delta = (2 * theta + Math.sin(2 * theta) - Math.PI * Math.sin(φ)) /
+                (2 + 2 * Math.cos(2 * theta));
+    theta -= delta;
+    if (Math.abs(delta) < 1e-10) break;
+  }
+
+  const x = (2 * Math.SQRT2 / Math.PI) * λ * Math.cos(theta);
+  const y = Math.SQRT2 * Math.sin(theta);
+  return { x, y };
+};
+    
+function generateGraticuleLines() {
+  const graticules = [];
+
+  // Generate lines of constant Dec (latitude)
+  for (let dec = -60; dec <= 60; dec += 30) {
+    const raVals = [];
+    const decVals = [];
+    for (let ra = 0; ra <= 360; ra += 2) {
+      raVals.push(ra);
+      decVals.push(dec);
+    }
+    const projected = raVals.map((ra, i) => mollweideProject(ra, decVals[i]));
+    graticules.push({
+      x: projected.map(p => p.x),
+      y: projected.map(p => p.y),
+      mode: 'lines',
+      type: 'scatter',
+      line: { color: '#444', width: 1 },
+      hoverinfo: 'skip',
+      showlegend: false
+    });
+  }
+
+  // Generate lines of constant RA (longitude)
+  for (let ra = 0; ra < 361; ra += 30) {
+    const raVals = [];
+    const decVals = [];
+    for (let dec = -90; dec <= 90; dec += 2) {
+      raVals.push(ra);
+      decVals.push(dec);
+    }
+    const projected = raVals.map((ra, i) => mollweideProject(ra, decVals[i]));
+    graticules.push({
+      x: projected.map(p => p.x),
+      y: projected.map(p => p.y),
+      mode: 'lines',
+      type: 'scatter',
+      line: { color: '#444', width: 1 },
+      hoverinfo: 'skip',
+      showlegend: false
+    });
+  }
+
+  return graticules;
+};
+}
+  </script>
+</body>
+</html>
